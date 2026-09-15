@@ -8,7 +8,7 @@ const helmet = require("helmet");
 // CONFIG
 // ================================================================
 
-const { connectDatabase } = require("./config/database");
+const { connectDatabase } = require("../config/database");
 
 // ================================================================
 // MIDDLEWARE
