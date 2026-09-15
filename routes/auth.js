@@ -1,300 +1,158 @@
-require("dotenv").config();
-
 const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-
-// ================================================================
-// CONFIG
-// ================================================================
-
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { body, validationResult } = require("express-validator");
 const { connectDatabase } = require("../config/database");
-
-// ================================================================
-// MIDDLEWARE
-// ================================================================
-
+const User = require("../models/User");
 const { apiLimiter } = require("../middleware/rateLimiter");
-const {
-  notFound,
-  errorHandler
-} = require("../middleware/errorHandler");
+const { generateToken } = require("../services/authService");
+
+const router = express.Router();
 
 // ================================================================
-// ROUTES
+// REGISTER
 // ================================================================
 
-// Routes section me:
-const authRoutes = require("./auth");  // ✅ Same folder
-const userRoutes = require("./users");
-const attendanceRoutes = require("./attendance");
-const scoreRoutes = require("./scores");
-const materialRoutes = require("./materials");
-const chatRoutes = require("./chat");
-
-// ================================================================
-// APP
-// ================================================================
-
-const app = express();
-
-const PORT = process.env.PORT || 5000;
-const NODE_ENV = process.env.NODE_ENV || "development";
-
-// ================================================================
-// SECURITY MIDDLEWARE
-// ================================================================
-
-app.use(
-  helmet({
-    crossOriginResourcePolicy: {
-      policy: "cross-origin"
-    }
-  })
-);
-
-// ================================================================
-// CORS - FIREBASE OPTIMIZED
-// ================================================================
-
-const allowedOrigins = [
-  // Firebase Hosting (Production)
-  "https://cyber-security-student-portal.web.app",
-  "https://cyber-security-student-portal.firebaseapp.com",
-  
-  // Local development (agar test karna ho)
-  "http://localhost:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:5173"
-];
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests without Origin (Postman, curl, server-to-server)
-      if (!origin) {
-        return callback(null, true);
+router.post(
+  "/register",
+  apiLimiter,
+  [
+    body("name").notEmpty().withMessage("Name is required"),
+    body("email").isEmail().withMessage("Valid email is required"),
+    body("password")
+      .isLength({ min: 6 })
+      .withMessage("Password must be at least 6 characters"),
+    body("role")
+      .optional()
+      .isIn(["student", "instructor", "admin"])
+      .withMessage("Invalid role"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
       }
 
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
+      const { name, email, password, role = "student" } = req.body;
+
+      await connectDatabase();
+
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered",
+        });
       }
 
-      console.warn("========================================");
-      console.warn("CORS BLOCKED");
-      console.warn("Origin:", origin);
-      console.warn("========================================");
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-      return callback(
-        new Error("CORS origin not allowed")
-      );
-    },
-
-    credentials: true,
-
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-      "OPTIONS"
-    ],
-
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization"
-    ],
-
-    optionsSuccessStatus: 204
-  })
-);
-
-// ================================================================
-// BODY PARSING
-// ================================================================
-
-app.use(
-  express.json({
-    limit: "1mb"
-  })
-);
-
-app.use(
-  express.urlencoded({
-    extended: false,
-    limit: "1mb"
-  })
-);
-
-// ================================================================
-// GENERAL API RATE LIMITER
-// ================================================================
-
-app.use("/api", apiLimiter);
-
-// ================================================================
-// HEALTH CHECK
-// ================================================================
-
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Cyber Security Portal Backend is running",
-    environment: NODE_ENV,
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Cyber Security Portal backend is running.",
-    environment: NODE_ENV,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// ================================================================
-// API ROUTES
-// ================================================================
-
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/attendance", attendanceRoutes);
-app.use("/api/scores", scoreRoutes);
-app.use("/api/materials", materialRoutes);
-app.use("/api/chat", chatRoutes);
-
-// ================================================================
-// API INFORMATION
-// ================================================================
-
-app.get("/api", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Cyber Security Learning Portal API",
-    version: "1.0.0"
-  });
-});
-
-// ================================================================
-// 404 HANDLER
-// ================================================================
-
-app.use(notFound);
-
-// ================================================================
-// GLOBAL ERROR HANDLER
-// ================================================================
-
-app.use(errorHandler);
-
-// ================================================================
-// DATABASE CONNECTION (FIREBASE COMPATIBLE)
-// ================================================================
-
-let dbConnected = false;
-
-const initializeDatabase = async () => {
-  if (dbConnected) return;
-  
-  try {
-    await connectDatabase();
-    dbConnected = true;
-    console.log("✅ MongoDB Connected Successfully");
-  } catch (error) {
-    console.error("❌ Database Connection Failed:", error.message);
-  }
-};
-
-// Initialize DB on first request (lazy loading for Firebase)
-app.use((req, res, next) => {
-  if (!dbConnected) {
-    initializeDatabase().then(() => {
-      next();
-    }).catch((err) => {
-      console.error("DB init error:", err);
-      next(err);
-    });
-  } else {
-    next();
-  }
-});
-
-// ================================================================
-// FIREBASE FUNCTIONS EXPORT
-// ================================================================
-
-// For Firebase Cloud Functions
-if (process.env.FIREBASE_RUNTIME) {
-  const functions = require("firebase-functions");
-  
-  // Export as HTTPS function
-  module.exports = {
-    app: functions.https.onRequest((req, res) => {
-      // Handle CORS preflight
-      if (req.method === "OPTIONS") {
-        return res.status(204).send();
-      }
-      
-      // Pass request to Express
-      app(req, res);
-    })
-  };
-}
-
-// ================================================================
-// STANDALONE SERVER (For testing if needed)
-// ================================================================
-
-const startServer = async () => {
-  try {
-    await connectDatabase();
-    
-    const server = app.listen(PORT, "0.0.0.0", () => {
-      console.log("");
-      console.log("==============================================");
-      console.log(" Cyber Security Portal Backend");
-      console.log("==============================================");
-      console.log(` Environment : ${NODE_ENV}`);
-      console.log(` Port        : ${PORT}`);
-      console.log(` API         : http://localhost:${PORT}/api`);
-      console.log(` Health      : http://localhost:${PORT}/health`);
-      console.log("==============================================");
-      console.log("");
-    });
-
-    const shutdown = (signal) => {
-      console.log(`\n${signal} received. Shutting down...`);
-      server.close(() => {
-        console.log("HTTP server closed.");
-        process.exit(0);
+      const user = new User({
+        name,
+        email,
+        password: hashedPassword,
+        role,
       });
-      
-      setTimeout(() => {
-        console.error("Forced shutdown after timeout.");
-        process.exit(1);
-      }, 10000).unref();
-    };
 
-    process.on("SIGINT", () => shutdown("SIGINT"));
-    process.on("SIGTERM", () => shutdown("SIGTERM"));
-    
-  } catch (error) {
-    console.error("Server startup failed:", error.message);
-    process.exit(1);
+      await user.save();
+
+      const token = generateToken(user);
+
+      res.status(201).json({
+        success: true,
+        message: "User registered successfully",
+        data: {
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          },
+          token,
+        },
+      });
+    } catch (error) {
+      console.error("Register error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: error.message,
+      });
+    }
   }
-};
-
-// Only start server if NOT in Firebase environment
-if (!process.env.FIREBASE_RUNTIME) {
-  startServer();
-}
+);
 
 // ================================================================
-// EXPORT APP
+// LOGIN
 // ================================================================
 
-module.exports.app = app;
+router.post(
+  "/login",
+  apiLimiter,
+  [
+    body("email").isEmail().withMessage("Valid email is required"),
+    body("password").notEmpty().withMessage("Password is required"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          errors: errors.array(),
+        });
+      }
+
+      const { email, password } = req.body;
+
+      await connectDatabase();
+
+      const user = await User.findOne({ email });
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid credentials",
+        });
+      }
+
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid credentials",
+        });
+      }
+
+      const token = generateToken(user);
+
+      res.json({
+        success: true,
+        message: "Login successful",
+        data: {
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          },
+          token,
+        },
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: error.message,
+      });
+    }
+  }
+);
+
+module.exports = router;
