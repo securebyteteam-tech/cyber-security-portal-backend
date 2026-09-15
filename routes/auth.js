@@ -24,12 +24,13 @@ const {
 // ROUTES
 // ================================================================
 
-const authRoutes = require("./routes/auth");
-const userRoutes = require("./routes/users");
-const attendanceRoutes = require("./routes/attendance");
-const scoreRoutes = require("./routes/scores");
-const materialRoutes = require("./routes/materials");
-const chatRoutes = require("./routes/chat");
+// Routes section me:
+const authRoutes = require("./auth");  // ✅ Same folder
+const userRoutes = require("./users");
+const attendanceRoutes = require("./attendance");
+const scoreRoutes = require("./scores");
+const materialRoutes = require("./materials");
+const chatRoutes = require("./chat");
 
 // ================================================================
 // APP
