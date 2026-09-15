@@ -14,11 +14,11 @@ const { connectDatabase } = require("../config/database");
 // MIDDLEWARE
 // ================================================================
 
-const { apiLimiter } = require("./middleware/rateLimiter");
+const { apiLimiter } = require("../middleware/rateLimiter");
 const {
   notFound,
   errorHandler
-} = require("./middleware/errorHandler");
+} = require("../middleware/errorHandler");
 
 // ================================================================
 // ROUTES
